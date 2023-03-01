@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Maplibre webviewer</title>
+
+<script src='https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.js'></script>
+<link href='https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.css' rel='stylesheet' />
+
+<style>
+    html, body, #map {
+        margin: 0;
+        height: 100%;
+        width: 100%;
+        font-family: sans-serif;
+      }
+      div#legend-overlay{
+        position: fixed;
+        bottom: 20px;
+        left: 30px;
+        height: 110px;
+        width: 480px;
+        padding: 15px;
+        background-color: white;
+        display: flex;
+        flex-flow: column wrap;
+        border-radius: 15px;
+      }
+      div#legend-overlay div#title, div#legend-overlay div#selector-title, div#legend-overlay fieldset#selector{
+        width: 100%;
+      }
+      div#legend-overlay div#title{
+        text-align: center;
+        font-size: 22px;
+        font-weight: bold;
+        margin-bottom: 20px;
+      }
+      div#legend-overlay div#selector-title{
+        text-align: center;
+        height: 15px;
+        margin-bottom: 10px;
+      }
+
+      div#legend-overlay fieldset#selector{
+        display: flex;
+        flex-flow: row wrap;
+        justify-content: space-around;
+        padding: 0px;
+        margin: 0px;
+        border: none;
+      }
+</style>
+</head>
+<body>
+<!--Create our map object -->
+<div id='map'></div>
+<div id='legend-overlay'>
+    <div id="title">Vancouver hydrants Voronoi</div>
+    <div id="selector-title">Please select voronoi size:</div>
+    <fieldset id="selector">
+        <div class="option">
+            <input type="radio" id="voro-1" name="voro" value="5"></input><label for="voro-1">5</label>
+        </div>
+        <div class="option">
+            <input type="radio" id="voro-2" name="voro" value="10"></input><label for="voro-2">10</label>
+        </div>
+        <div class="option">
+            <input type="radio" id="voro-3" name="voro" value="15"></input><label for="voro-3">15</label>
+        </div>
+        <div class="option">
+            <input type="radio" id="voro-4" name="voro" value="20"></input><label for="voro-4">20</label>
+        </div>
+        <div class="option">
+            <input type="radio" id="voro-5" name="voro" value="25"></input><label for="voro-5">25</label>
+        </div>
+        <div class="option">
+            <input type="radio" id="voro-6" name="voro" value="30"></input><label for="voro-6">30</label>
+        </div>
+    </fieldset>
+</div>
+<script>
+    var hoveredStateId = null;
+
+    const style = {
+        "version": 8,
+            "sources": {
+            "osm": {
+                    "type": "raster",
+                    "tiles": ["https://a.tile.openstreetmap.org/{z}/{x}/{y}.png"],
+                    "tileSize": 256,
+            "attribution": "&copy; OpenStreetMap Contributors",
+            "maxzoom": 19
+            }
+        },
+        "layers": [
+            {
+            "id": "osm",
+            "type": "raster",
+            "source": "osm" // This must match the source key above
+            }
+        ]
+    };
+
+    var long = null;
+    var lat = null;
+    var count = 30;
+    var rootFunctionUrl = '';
+
+    var map = new maplibregl.Map({
+    container: 'map',
+    style: style,
+    center: [-123.129, 49.253], // starting position [lng, lat]
+    zoom: 9 // starting zoom
+    });
+
+    map.on('load', function () {
+        fetch('http:/pg.ginonino.online/public.hydrants.json')
+            .then((response_hydrants) => response_hydrants.json())
+            .then(function(data_hydrants){
+                fetch('http:/pg.ginonino.online/public.hydrants_voronoi.json')
+                    .then((response_voronoi) => response_voronoi.json())
+                    .then(function(data_voronoi){
+                        var rootFunctionUrl = data_voronoi.tileurl;
+
+                        map.addSource(data_hydrants.id, {
+                            "type":"vector",
+                            "tiles":[data_hydrants.tileurl],
+                            "bounds":data_hydrants.bounds,
+                            "maxzoom":data_hydrants.maxzoom,"minzoom":data_hydrants.minzoom,
+                            "name":data_hydrants.name,
+                            "generateId": true
+                        })
+
+                        map.addSource(data_voronoi.id, {
+                            "type":"vector",
+                            "tiles":[data_voronoi.tileurl],
+                            "maxzoom":data_voronoi.maxzoom,"minzoom":data_voronoi.minzoom,
+                            "name":data_voronoi.name,
+                            "generateId": true
+                        })
+
+                        map.addLayer({
+                            id: `${data_hydrants.name}-layer`,
+                            type: 'circle',
+                            'source': data_hydrants.id,
+                            'source-layer': data_hydrants.id,
+                            paint: {
+                                'circle-color': 'blue'
+                            }
+                        });
+
+                        map.addLayer({
+                            id: `${data_voronoi.name}-layer`,
+                            type: 'fill',
+                            'source': data_voronoi.id,
+                            'source-layer': data_voronoi.id,
+                            paint: {
+                                'fill-opacity': 0.4,
+                                'fill-color': [
+                                    "case",
+                                    ["==", ["%", ["to-number", ["get", "id"]], 2], 0],
+                                    ["rgb",  200,  100,  50],
+                                    ["rgb",  100,  50,  200]
+                                ],
+                            }
+                        });
+                        map.addLayer({
+                            id: `${data_voronoi.name}-layer-outline`,
+                            type: 'line',
+                            'source': data_voronoi.id,
+                            'source-layer': data_voronoi.id,
+                            paint: {
+                                'line-color': '#627BC1',
+                                'line-width': 2
+                            }
+                        });
+                        
+                        map.on('click', `${data_hydrants.name}-layer`, function (e) {
+                            let radioButtons = document.querySelectorAll('input[name="voro"]');
+                            radioButtons.forEach(btn => {
+                                if(btn.checked){
+                                    console.log(btn.value);
+                                    count = parseInt(btn.value);
+                                }
+                            });
+
+                            let coords = e.lngLat.wrap();
+                            let newUrl = rootFunctionUrl + encodeURI(`?lon=${coords.lng}&lat=${coords.lat}&count=${count}`);
+                            console.log("new url generated = ", newUrl);
+
+                            map.getSource(data_voronoi.id).tiles = [newUrl];
+                            map.style.sourceCaches[data_voronoi.id].clearTiles();
+                            map.style.sourceCaches[data_voronoi.id].update(map.transform);
+                            map.triggerRepaint();
+                        });
+                    })
+            });
+    });
+    
+</script>
+</body>
+</html>

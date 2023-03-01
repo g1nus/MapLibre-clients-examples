@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Maplibre webviewer</title>
+
+<script src='https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.js'></script>
+<link href='https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.css' rel='stylesheet' />
+
+<style>
+    html, body, #map {
+        margin: 0;
+        height: 800px;
+        width: 100%;
+        font-family: sans-serif;
+      }
+</style>
+</head>
+<body>
+<!--Create our map object -->
+<div id='map'></div>
+<script>
+    var hoveredStateId = null;
+
+    const style = {
+        "version": 8,
+            "sources": {
+            "osm": {
+                    "type": "raster",
+                    "tiles": ["https://a.tile.openstreetmap.org/{z}/{x}/{y}.png"],
+                    "tileSize": 256,
+            "attribution": "&copy; OpenStreetMap Contributors",
+            "maxzoom": 19
+            }
+        },
+        "layers": [
+            {
+            "id": "osm",
+            "type": "raster",
+            "source": "osm" // This must match the source key above
+            }
+        ]
+    };
+
+    var map = new maplibregl.Map({
+    container: 'map',
+    style: style,
+    center: [-74, 40.7], // starting position [lng, lat]
+    zoom: 6 // starting zoom
+    });
+
+    map.on('load', function () {
+        fetch('http://pg.ginonino.online/public.ny_state_zoom_handler.json')
+            .then((response) => response.json())
+            .then(function(data){
+                console.log(data);
+
+                map.addSource(data.id, {
+                    "type":"vector",
+                    "tiles":[data.tileurl],
+                    "maxzoom":data.maxzoom,"minzoom":data.minzoom,
+                    "name":data.name,
+                    "generateId": true
+                })
+
+                map.addLayer({
+                    id: `${data.name}-layer`,
+                    type: 'fill',
+                    'source': data.id,
+                    'source-layer': data.id,
+                    paint: {
+                        'fill-opacity': 0.5,
+                        'fill-color': 'grey'
+                    },
+                }); 
+
+            });
+    });
+    
+</script>
+</body>
+</html>

@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Maplibre webviewer</title>
+
+<script src='https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.js'></script>
+<link href='https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.css' rel='stylesheet' />
+
+<style>
+    html, body, #map {
+        margin: 0;
+        height: 100%;
+        width: 100%;
+        font-family: sans-serif;
+      }
+      div#legend-overlay{
+        position: fixed;
+        bottom: 20px;
+        left: 30px;
+        height: 90px;
+        width: 480px;
+        padding: 15px;
+        background-color: white;
+        display: flex;
+        flex-flow: column wrap;
+        border-radius: 15px;
+      }
+      div#legend-overlay div#title, div#legend-overlay div#percentages, div#legend-overlay div#gradient{
+        width: 100%;
+      }
+      div#legend-overlay div#title{
+        text-align: center;
+        font-size: 22px;
+        font-weight: bold;
+        margin-bottom: 10px;
+      }
+      div#legend-overlay div#percentages{
+        display: flex;
+        flex-flow: row  wrap;
+        align-items: center;
+        justify-content: space-between;
+      }
+      div#legend-overlay div#gradient{
+        height: 15px;
+        background: linear-gradient(to right, #13f500 0%,#8df300 20%,#fff100 30%,#fdb342 40%,#fa7583 50%,#f94ab1 60%,#f600ff 70%,#5900ff 80%,#0a00ff 90%); 
+      }
+
+      div#tooltip{
+        font-size: 20px;
+        color: rgb(48, 48, 48);
+      }
+</style>
+</head>
+<body>
+<!--Create our map object -->
+<div id='map'></div>
+<div id='legend-overlay'>
+    <div id="title">New York white population density in 2000</div>
+    <div id="percentages"><span>0%</span> <span>50%</span> <span>100%</span></div>
+    <div id="gradient"></div>
+</div>
+<script>
+    var hoveredStateId = null;
+
+    const style = {
+        "version": 8,
+            "sources": {
+            "osm": {
+                    "type": "raster",
+                    "tiles": ["https://a.tile.openstreetmap.org/{z}/{x}/{y}.png"],
+                    "tileSize": 256,
+            "attribution": "&copy; OpenStreetMap Contributors",
+            "maxzoom": 19
+            }
+        },
+        "layers": [
+            {
+            "id": "osm",
+            "type": "raster",
+            "source": "osm" // This must match the source key above
+            }
+        ]
+    };
+
+    var map = new maplibregl.Map({
+    container: 'map',
+    style: style,
+    center: [-74, 40.7], // starting position [lng, lat]
+    zoom: 9 // starting zoom
+    });
+
+    map.on('load', function () {
+        fetch('http://pg.ginonino.online/public.nyc_census_blocks.json')
+            .then((response) => response.json())
+            .then(function(data){
+                console.log(data);
+
+                map.addSource(data.id, {
+                    "type":"vector",
+                    "tiles":[data.tileurl],
+                    "bounds":data.bounds,
+                    "maxzoom":data.maxzoom,"minzoom":data.minzoom,
+                    "name":data.name,
+                    "generateId": true
+                })
+
+                map.addLayer({
+                    id: `${data.name}-layer`,
+                    type: 'fill',
+                    'source': data.id,
+                    'source-layer': data.id,
+                    paint: {
+                        'fill-opacity': [
+                            'case',
+                            ['boolean', ['feature-state', 'hover'], false],
+                            0.9,
+                            0.4
+                        ],
+                        'fill-color': [
+                            'step', ['get', 'perc_white'],
+                            '#13f500',
+                            20,
+                            '#8df300',
+                            30,
+                            '#fff100',
+                            40,
+                            '#fdb342',
+                            50,
+                            '#fa7583',
+                            60,
+                            '#f94ab1',
+                            70,
+                            '#f600ff',
+                            80,
+                            '#5900ff',
+                            90,
+                            '#0a00ff'
+                        ]
+                    },
+                });
+
+                map.addLayer({
+                    id: `${data.name}-layer-line`,
+                    type: 'line',
+                    'source': data.id,
+                    'source-layer': data.id,
+                    paint: {
+                        'line-color': '#fadad9',
+                        'line-width': 5,
+                        'line-opacity': [
+                            'case',
+                            ['boolean', ['feature-state', 'hover'], false],
+                            0.9,
+                            0.0
+                        ],
+                    },
+                });
+
+                map.on('click', `${data.name}-layer`, function (e) {
+                    console.log("clicking on ", e.features[0])
+                    let target = [0, 0];
+
+
+                    if (e.features.length == 0) { return; }
+
+                    let coords = e.features[0].geometry.coordinates.slice()[0];
+
+                    console.log(coords);
+                    coords.forEach(el => {
+                        target[0] += el[0];
+                        target[1] += el[1];
+                    });
+                    target[0] = target[0]/coords.length;
+                    target[1] = target[1]/coords.length;
+
+
+                    var coordinates = e.features[0].geometry.coordinates.slice();
+                    console.log(coordinates, target)
+                    var p = "density: " + parseInt(Math.ceil(e.features[0].properties.perc_white)) + "% 👨‍👧‍👧";
+                    while (Math.abs(e.lngLat.lng - target) > 180) {
+                        target += e.lngLat.lng > target ? 360 : -360;
+                    }
+
+                    new maplibregl.Popup()
+                    .setLngLat(target)
+                    .setHTML("<div id='tooltip'>" + p + "</div>")
+                    .addTo(map);
+
+                    if(hoveredStateId){
+                        map.removeFeatureState({
+                            source: data.id,
+                            sourceLayer: data.id,
+                            id: hoveredStateId
+                        });
+                    }
+                    hoveredStateId = e.features[0].id;
+                    map.setFeatureState({
+                        source: data.id,
+                        sourceLayer: data.id,
+                        id: hoveredStateId
+                    }, { hover: true });
+                });  
+                map.addControl(new maplibregl.NavigationControl());   
+
+            });
+    });
+    
+</script>
+</body>
+</html>
